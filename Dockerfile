@@ -1,26 +1,24 @@
-# Gunakan image Python yang ringan
-FROM python:3.9-slim
+FROM tensorflow/serving:2.8.0
 
-# Railway injects env vars at build time, declare them here
-ARG RAILWAY_SERVICE_NAME
-ARG RAILWAY_ENVIRONMENT
+COPY ./outputs/serving_model /models/heart-failure-model
+COPY ./config /model_config
 
-# Debug: tampilkan informasi build
-RUN echo "Service: $RAILWAY_SERVICE_NAME | Environment: $RAILWAY_ENVIRONMENT"
+ENV MODEL_NAME=heart-failure-model
+ENV MONITORING_CONFIG="/model_config/prometheus.config"
+ENV MODEL_BASE_PATH=/models
+ENV PORT=${PORT:-8501}  
 
-# Set workdir
-WORKDIR /app
+ENTRYPOINT ["/usr/bin/tf_serving_entrypoint.sh"]
 
-# Salin file requirements terlebih dahulu untuk cache pip
-COPY requirements.txt .
+RUN echo '#!/bin/bash \n\
+    echo "Starting TensorFlow Serving on port ${PORT}" \n\
+    tensorflow_model_server \\\n\
+      --port=8500 \\\n\
+      --rest_api_port=${PORT} \\\n\
+      --model_name=${MODEL_NAME} \\\n\
+      --model_base_path=${MODEL_BASE_PATH}/${MODEL_NAME} \\\n\
+      --monitoring_config_file=${MONITORING_CONFIG} \\\n\
+      "$@"' > /usr/bin/tf_serving_entrypoint.sh \
+    && chmod +x /usr/bin/tf_serving_entrypoint.sh
 
-# Install dependencies dan gunakan cache pip
-RUN --mount=type=cache,id=s/railway-pip-cache,target=/root/.cache/pip \
-    pip install --upgrade pip && \
-    pip install -r requirements.txt
-
-# Salin seluruh isi project ke container
-COPY . .
-
-# Default command saat container dijalankan
-CMD ["python", "run_pipeline.py"]
+EXPOSE ${PORT}

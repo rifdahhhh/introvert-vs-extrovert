@@ -1,12 +1,10 @@
 global:
   scrape_interval: 15s
-  evaluation_interval: 15s
-  external_labels:
-    monitor: "tf-serving-monitor"
 
 scrape_configs:
-  - job_name: "railway-app"
-    scrape_interval: 5s
-    metrics_path: /monitoring/prometheus/metrics
+  - job_name: 'tensorflow-serving'
     static_configs:
-      - targets: ["your-app.up.railway.app"]
+      - targets: ['host.docker.internal:8501']
+
+    metrics_path: '/monitoring/prometheus/metrics'  # Path harus tepat
+    scrape_interval: 5s

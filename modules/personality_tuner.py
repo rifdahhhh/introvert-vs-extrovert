@@ -1,25 +1,21 @@
+"""Tuning module for personality classification using KerasTuner."""
+
+from collections import namedtuple
 import tensorflow as tf
 import tensorflow_transform as tft
 import kerastuner
-import os
-
-from collections import namedtuple
 from tensorflow.keras import layers
-from kerastuner import HyperParameters
 from tfx.components.trainer.fn_args_utils import FnArgs
 
 TunerFnResult = namedtuple('TunerFnResult', ['tuner', 'fit_kwargs'])
 
-# Label target
 LABEL_KEY = "Personality"
 
-# Fitur kategorikal
 CATEGORICAL_FEATURE_KEYS = [
     "Stage_fear",
     "Drained_after_socializing"
 ]
 
-# Fitur numerik
 NUMERIC_FEATURE_KEYS = [
     "Time_spent_Alone",
     "Social_event_attendance",
@@ -29,12 +25,15 @@ NUMERIC_FEATURE_KEYS = [
 ]
 
 def transformed_name(key: str) -> str:
+    """Generate transformed feature name."""
     return key + "_xf"
 
 def gzip_reader_fn(filenames):
+    """Read TFRecord files with GZIP compression."""
     return tf.data.TFRecordDataset(filenames, compression_type='GZIP')
 
 def input_fn(file_pattern, tf_transform_output, num_epochs=1, batch_size=32):
+    """Create input dataset for tuner."""
     if isinstance(file_pattern, list):
         all_files = []
         for pattern in file_pattern:
@@ -53,14 +52,13 @@ def input_fn(file_pattern, tf_transform_output, num_epochs=1, batch_size=32):
         shuffle=True,
         shuffle_buffer_size=1000
     )
-
     return dataset.prefetch(tf.data.AUTOTUNE)
 
 def build_model(hp):
+    """Build and compile Keras model with hyperparameters."""
     inputs = {}
     encoded_inputs = []
 
-    # Input kategorikal dengan embedding
     for key in CATEGORICAL_FEATURE_KEYS:
         input_key = transformed_name(key)
         inputs[input_key] = tf.keras.Input(shape=(1,), name=input_key, dtype=tf.int64)
@@ -68,13 +66,11 @@ def build_model(hp):
         flat = layers.Flatten()(embedding)
         encoded_inputs.append(flat)
 
-    # Input numerik
     for key in NUMERIC_FEATURE_KEYS:
         input_key = transformed_name(key)
         inputs[input_key] = tf.keras.Input(shape=(1,), name=input_key, dtype=tf.float32)
         encoded_inputs.append(inputs[input_key])
 
-    # Gabungkan semua input
     x = layers.Concatenate()(encoded_inputs)
     x = layers.Dense(hp.Int("units_1", 32, 128, step=16), activation='relu')(x)
     x = layers.Dense(hp.Int("units_2", 16, 64, step=16), activation='relu')(x)
@@ -83,17 +79,21 @@ def build_model(hp):
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(
-            learning_rate=hp.Choice("learning_rate", [0.001, 0.01, 0.1])),
+            learning_rate=hp.Choice("learning_rate", [0.001, 0.01, 0.1])
+        ),
         loss='binary_crossentropy',
         metrics=['binary_accuracy']
     )
     return model
 
 def tuner_fn(fn_args: FnArgs) -> TunerFnResult:
+    """TFX entry point for tuning."""
     tf_transform_output = tft.TFTransformOutput(fn_args.transform_graph_path)
 
-    train_set = input_fn(fn_args.train_files, tf_transform_output, num_epochs=None, batch_size=32)
-    eval_set = input_fn(fn_args.eval_files, tf_transform_output, num_epochs=None, batch_size=32)
+    train_set = input_fn(fn_args.train_files, tf_transform_output,
+                         num_epochs=None, batch_size=32)
+    eval_set = input_fn(fn_args.eval_files, tf_transform_output,
+                        num_epochs=None, batch_size=32)
 
     tuner = kerastuner.RandomSearch(
         build_model,
